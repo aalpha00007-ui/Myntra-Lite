@@ -1,6 +1,6 @@
 // GET  /api/addresses                              - your saved addresses
 // POST /api/addresses { name, line, city, pin, kind } - add one (demo app: use a made-up address)
-import { currentUser } from "@/lib/auth";
+import { currentUser, setSessionCookie, userOrGuest } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { fail, ok, readJson } from "@/lib/http";
 
@@ -8,14 +8,13 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const user = await currentUser();
-  if (!user) return fail(401, "Please log in first.");
+  if (!user) return ok({ addresses: [] });
   const rows = await db()`SELECT id, name, line, city, pin, kind FROM addresses WHERE user_id = ${user.id} ORDER BY id`;
   return ok({ addresses: rows });
 }
 
 export async function POST(request: Request) {
-  const user = await currentUser();
-  if (!user) return fail(401, "Please log in first.");
+  const { user, newToken } = await userOrGuest();
   const b = await readJson(request);
   if (!b) return fail(400, "Request body must be valid JSON.");
   const s = (v: unknown) => (typeof v === "string" ? v.trim() : "");
@@ -28,5 +27,5 @@ export async function POST(request: Request) {
   const [address] = await db()`
     INSERT INTO addresses (user_id, name, line, city, pin, kind) VALUES (${user.id}, ${name}, ${line}, ${city}, ${pin}, ${kind})
     RETURNING id, name, line, city, pin, kind`;
-  return ok({ address }, 201);
+  return setSessionCookie(ok({ address }, 201), newToken);
 }

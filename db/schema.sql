@@ -34,7 +34,9 @@ CREATE INDEX reviews_product ON reviews(product_id);
 CREATE TABLE users (
   id         SERIAL PRIMARY KEY,
   name       TEXT NOT NULL,
-  phone      TEXT NOT NULL UNIQUE,
+  username   TEXT UNIQUE,              -- demo login name; NULL for guests
+  phone      TEXT UNIQUE,              -- unused since the demo login change
+  is_guest   BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

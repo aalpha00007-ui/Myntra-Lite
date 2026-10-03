@@ -9,17 +9,17 @@ import type { ProductCard as Card } from "@/lib/types";
 
 export default function Wishlist() {
   const me = useMe();
-  const [data, setData] = useState<{ loggedIn: boolean; products: Card[] } | null>(null);
+  const [data, setData] = useState<{ products: Card[] } | null>(null);
   const [filter, setFilter] = useState("All");
   const [moving, setMoving] = useState<string | null>(null);
   const [fitOpen, setFitOpen] = useState(false);
   const [toast, show] = useToast();
 
-  const load = () => api<{ loggedIn: boolean; products: Card[] }>("/api/wishlist").then((r) => r.ok && setData(r.data));
+  const load = () => api<{ products: Card[] }>("/api/wishlist").then((r) => r.ok && setData(r.data));
   useEffect(() => { load(); }, []);
 
   async function remove(p: Card) {
-    const r = await api<{ loggedIn: boolean; products: Card[] }>(`/api/wishlist?productId=${encodeURIComponent(p.id)}`, { method: "DELETE" });
+    const r = await api<{ products: Card[] }>(`/api/wishlist?productId=${encodeURIComponent(p.id)}`, { method: "DELETE" });
     if (r.status === 401) return goLogin();
     if (r.ok) { setData(r.data); refreshMe(); show("Removed from wishlist"); }
   }
@@ -35,10 +35,7 @@ export default function Wishlist() {
         right={<><button type="button" className="ico" aria-label="Edit size details" onClick={() => setFitOpen(true)}><Icon.pencil /></button><HeaderIcons /></>}
       />
       <Proto />
-      {!data ? <Loading /> : !data.loggedIn ? (
-        <div className="empty"><h2>Log in to see your wishlist</h2><p className="muted">Your saved items and size details are kept in your account.</p>
-          <Link href="/login?next=/wishlist" className="obtn" style={{ borderColor: "var(--accent)", color: "var(--accent)" }}>Log in</Link></div>
-      ) : data.products.length === 0 ? (
+      {!data ? <Loading /> : data.products.length === 0 ? (
         <div className="empty"><h2>Your wishlist is empty</h2><p className="muted">Tap the heart on any item to save it here.</p><Link href="/" className="obtn">Continue shopping</Link></div>
       ) : (
         <>

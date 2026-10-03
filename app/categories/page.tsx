@@ -7,9 +7,9 @@ import { api } from "@/lib/api";
 import type { ProductCard } from "@/lib/types";
 
 const DEPTS = [
-  { id: "men", name: "Men", subs: [["Shirts", "shirt3"], ["T-Shirts", "tee2"], ["Blazers", "blazer"], ["Trousers", "cargo"], ["Jeans", "jeans"]] },
-  { id: "women", name: "Women", subs: [["Dresses", "dress"], ["Ethnic Wear", "kurta2"], ["Trousers", "wtrous"], ["Skirts", "skirt"]] },
-  { id: "footwear", name: "Footwear", subs: [["Sneakers", "sneaker2"], ["Boots", "boot"], ["Loafers", "loafer2"], ["Heels", "sandal"]] },
+  { id: "men", name: "Men", subs: [["Shirts", "shirt3"], ["T-Shirts", "tee2"], ["Hoodies & Sweaters", "grey-pullover-hoodie"], ["Jackets", "blue-denim-trucker-jacket"], ["Blazers", "blazer"], ["Ethnic Wear", "blue-cotton-kurta-set"], ["Trousers", "cargo"], ["Shorts", "olive-chino-shorts"], ["Jeans", "jeans"]] },
+  { id: "women", name: "Women", subs: [["Dresses", "dress"], ["Tops", "white-casual-top"], ["Ethnic Wear", "kurta2"], ["Jeans", "mid-rise-blue-jeans"], ["Trousers", "wtrous"], ["Skirts", "skirt"], ["Blazers", "grey-tailored-blazer"]] },
+  { id: "footwear", name: "Footwear", subs: [["Sneakers", "sneaker2"], ["Boots", "boot"], ["Loafers", "loafer2"], ["Formal Shoes", "brown-leather-oxfords"], ["Heels", "sandal"], ["Sandals & Flats", "woven-multicolour-sandals"]] },
 ];
 
 export default function Categories() {

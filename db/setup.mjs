@@ -52,35 +52,46 @@ function values(rows) {
 const [{ ready }] = await sql.query("SELECT to_regclass('public.notes') IS NOT NULL AS ready");
 
 let seeded = false;
-if (ready && !reset) {
-  console.log("Tables already exist - leaving your data alone. (Use npm run db:reset to start over.)");
-} else {
+if (!ready || reset) {
   if (reset) console.log("Reset requested: dropping everything...");
   for (const t of ALL_TABLES) await sql.query(`DROP TABLE IF EXISTS ${t} CASCADE`);
   for (const s of statements("./schema.sql")) await sql.query(s);
   console.log("Created tables:", ALL_TABLES.slice().reverse().join(", "));
-
-  const items = catalogue();
-  const prod = values(items.map((p) => [p.id, p.gender, p.department, p.sub, p.brand, p.name, p.price, p.sizeSystem, p.photo, p.colour]));
-  await sql.query(
-    `INSERT INTO products (id, gender, department, sub, brand, name, price, size_system, photo, colour) VALUES ${prod.text}`,
-    prod.params
-  );
-
-  let reviewCount = 0;
-  for (const p of items) {
-    const rv = values(p.reviews.map((r) => [p.id, r.h, r.build, r.usual, r.kept, r.fit, r.rating, r.text, r.photo, r.days]));
-    await sql.query(
-      `INSERT INTO reviews (product_id, height_cm, build, usual_size, kept_size, fit, rating, body, has_photo, created_at)
-       SELECT v.pid, v.h::int, v.build, v.usual, v.kept, v.fit, v.rating::int, v.body, v.photo::boolean, NOW() - (v.days::int * INTERVAL '1 day')
-       FROM (VALUES ${rv.text}) AS v(pid, h, build, usual, kept, fit, rating, body, photo, days)`,
-      rv.params.map(String)
-    );
-    reviewCount += p.reviews.length;
-  }
-  console.log(`Seeded: ${items.length} products and ${reviewCount} reviews`);
   seeded = true;
+} else {
+  console.log("Tables already exist - keeping users, wishlists, orders and results.");
 }
+
+// Upgrades for databases created by earlier versions (safe to re-run).
+await sql.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT");
+await sql.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_guest BOOLEAN NOT NULL DEFAULT FALSE");
+await sql.query("ALTER TABLE users ALTER COLUMN phone DROP NOT NULL");
+await sql.query("CREATE UNIQUE INDEX IF NOT EXISTS users_username ON users(username)");
+
+// The catalogue is upserted every time, so new products and photo fixes reach an existing database.
+const items = catalogue();
+const prod = values(items.map((p) => [p.id, p.gender, p.department, p.sub, p.brand, p.name, p.price, p.sizeSystem, p.photo, p.colour]));
+await sql.query(
+  `INSERT INTO products (id, gender, department, sub, brand, name, price, size_system, photo, colour) VALUES ${prod.text}
+   ON CONFLICT (id) DO UPDATE SET gender = EXCLUDED.gender, department = EXCLUDED.department, sub = EXCLUDED.sub, brand = EXCLUDED.brand,
+     name = EXCLUDED.name, price = EXCLUDED.price, size_system = EXCLUDED.size_system, photo = EXCLUDED.photo, colour = EXCLUDED.colour`,
+  prod.params
+);
+
+// Reviews are only added for products that have none yet (existing reviews are never touched).
+const withReviews = new Set((await sql.query("SELECT DISTINCT product_id FROM reviews")).map((r) => r.product_id));
+let added = 0;
+for (const p of items.filter((x) => !withReviews.has(x.id))) {
+  const rv = values(p.reviews.map((r) => [p.id, r.h, r.build, r.usual, r.kept, r.fit, r.rating, r.text, r.photo, r.days]));
+  await sql.query(
+    `INSERT INTO reviews (product_id, height_cm, build, usual_size, kept_size, fit, rating, body, has_photo, created_at)
+     SELECT v.pid, v.h::int, v.build, v.usual, v.kept, v.fit, v.rating::int, v.body, v.photo::boolean, NOW() - (v.days::int * INTERVAL '1 day')
+     FROM (VALUES ${rv.text}) AS v(pid, h, build, usual, kept, fit, rating, body, photo, days)`,
+    rv.params.map(String)
+  );
+  added += p.reviews.length;
+}
+console.log(`Catalogue: ${items.length} products upserted, ${added} new reviews added`);
 
 if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `seeded=${seeded}\n`);
 

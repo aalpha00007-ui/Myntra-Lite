@@ -1,12 +1,12 @@
 // GET /api/results - the prototype test results, computed from wishlist items, orders and events.
 // North-star metric: of the items testers wishlisted, the share they went on to buy.
-// The CI test account (9000000000) is left out so automated runs don't count as testers.
+// The CI test account (username ci-test) is left out so automated runs don't count as testers.
 import { db } from "@/lib/db";
 import { ok } from "@/lib/http";
 import type { Results } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
-const CI_PHONE = "9000000000";
+const CI_USER = "ci-test";
 const pct = (a: number, b: number) => (b ? `${Math.round((100 * a) / b)}%` : "–");
 
 export async function GET() {
@@ -23,12 +23,12 @@ export async function GET() {
         AND NOT EXISTS (SELECT 1 FROM order_items oi JOIN orders o ON o.id = oi.order_id
               WHERE o.user_id = w.user_id AND oi.product_id = w.product_id) AS not_for_me
     FROM (SELECT DISTINCT e.user_id, e.product_id FROM events e JOIN users u ON u.id = e.user_id
-          WHERE e.action = 'wishlisted' AND u.phone <> ${CI_PHONE}) w
+          WHERE e.action = 'wishlisted' AND u.username IS DISTINCT FROM ${CI_USER} AND u.phone IS DISTINCT FROM '9000000000') w
     JOIN products p ON p.id = w.product_id`;
-  const testers = await sql`SELECT COUNT(DISTINCT e.user_id)::int AS n FROM events e JOIN users u ON u.id = e.user_id WHERE u.phone <> ${CI_PHONE}`;
+  const testers = await sql`SELECT COUNT(DISTINCT e.user_id)::int AS n FROM events e JOIN users u ON u.id = e.user_id WHERE u.username IS DISTINCT FROM ${CI_USER} AND u.phone IS DISTINCT FROM '9000000000'`;
   const notes = await sql`
     SELECT n.body, p.name, n.created_at FROM notes n JOIN products p ON p.id = n.product_id JOIN users u ON u.id = n.user_id
-    WHERE u.phone <> ${CI_PHONE} ORDER BY n.created_at DESC LIMIT 12`;
+    WHERE u.username IS DISTINCT FROM ${CI_USER} AND u.phone IS DISTINCT FROM '9000000000' ORDER BY n.created_at DESC LIMIT 12`;
 
   const ordered = pairs.filter((r) => r.ordered);
   const byProduct = new Map<string, typeof pairs>();

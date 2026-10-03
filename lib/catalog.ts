@@ -102,7 +102,7 @@ export async function suggestedFor(productId: string, userId: number | null): Pr
 }
 
 export async function bagView(userId: number | null): Promise<Bag> {
-  if (!userId) return { loggedIn: false, lines: [], count: 0, totalPriceLabel: inr(0), deliveryLabel: "FREE", totalLabel: inr(0) };
+  if (!userId) return { loggedIn: true, lines: [], count: 0, totalPriceLabel: inr(0), deliveryLabel: "FREE", totalLabel: inr(0) };
   const rows = await db()`
     SELECT b.product_id, b.size, b.qty, p.brand, p.name, p.photo, p.price, p.size_system
     FROM bag_items b JOIN products p ON p.id = b.product_id

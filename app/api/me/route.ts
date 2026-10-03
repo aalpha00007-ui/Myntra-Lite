@@ -1,4 +1,4 @@
-// GET /api/me - who is logged in, their size details (or the example ones), and badge counts.
+// GET /api/me - who this is (a named demo account, a guest, or nobody yet), their size details and badge counts.
 import { currentUser } from "@/lib/auth";
 import { profileFor } from "@/lib/catalog";
 import { db } from "@/lib/db";
@@ -20,7 +20,8 @@ export async function GET() {
     bagCount = Number(c.b);
   }
   const me: Me = {
-    user: user ? { name: user.name, phone: user.phone, initial: user.name.charAt(0).toUpperCase() } : null,
+    user: user && !user.is_guest ? { name: user.name, username: user.username ?? user.name, initial: user.name.charAt(0).toUpperCase() } : null,
+    isGuest: !user || user.is_guest,
     profile, isExample, wishlistCount, bagCount,
   };
   return ok(me);

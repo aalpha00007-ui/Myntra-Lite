@@ -2,7 +2,7 @@
 // POST   /api/bag { productId, size, fromWishlist? }     - add (or re-size) an item; moving from the wishlist removes it there
 // PATCH  /api/bag { productId, size?, qty? }             - change size or quantity
 // DELETE /api/bag?productId=x                            - remove it
-import { currentUser } from "@/lib/auth";
+import { currentUser, setSessionCookie, userOrGuest } from "@/lib/auth";
 import { bagView, suggestedFor } from "@/lib/catalog";
 import { db } from "@/lib/db";
 import { SIZES } from "@/lib/fit";
@@ -22,8 +22,6 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const user = await currentUser();
-  if (!user) return fail(401, "Please log in to add items to your bag.");
   const body = await readJson(request);
   if (!body) return fail(400, "Request body must be valid JSON.");
   const productId = typeof body.productId === "string" ? body.productId : "";
@@ -32,6 +30,7 @@ export async function POST(request: Request) {
   if (!sizes) return fail(400, "That product does not exist.");
   if (!sizes.includes(size)) return fail(400, `Size must be one of ${sizes.join(", ")}.`);
 
+  const { user, newToken } = await userOrGuest();
   const sql = db();
   const shown = await suggestedFor(productId, user.id);
   await sql`
@@ -39,12 +38,12 @@ export async function POST(request: Request) {
     ON CONFLICT (user_id, product_id) DO UPDATE SET size = EXCLUDED.size`;
   await sql`INSERT INTO events (user_id, product_id, action, size, shown_suggested) VALUES (${user.id}, ${productId}, 'added_to_bag', ${size}, ${shown})`;
   if (body.fromWishlist === true) await sql`DELETE FROM wishlist_items WHERE user_id = ${user.id} AND product_id = ${productId}`;
-  return ok(await bagView(user.id));
+  return setSessionCookie(ok(await bagView(user.id)), newToken);
 }
 
 export async function PATCH(request: Request) {
   const user = await currentUser();
-  if (!user) return fail(401, "Please log in first.");
+  if (!user) return fail(404, "That item is not in your bag.");
   const body = await readJson(request);
   if (!body) return fail(400, "Request body must be valid JSON.");
   const productId = typeof body.productId === "string" ? body.productId : "";
@@ -66,7 +65,7 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   const user = await currentUser();
-  if (!user) return fail(401, "Please log in first.");
+  if (!user) return ok(await bagView(null));
   const productId = new URL(request.url).searchParams.get("productId") ?? "";
   await db()`DELETE FROM bag_items WHERE user_id = ${user.id} AND product_id = ${productId}`;
   return ok(await bagView(user.id));

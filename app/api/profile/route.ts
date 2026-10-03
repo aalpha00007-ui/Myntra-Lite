@@ -1,6 +1,6 @@
 // GET /api/profile - your Size Details (example values until you save your own)
 // PUT /api/profile { heightCm, build, top, waist, shoe, pref } - save them; Fit Twin uses them everywhere
-import { currentUser } from "@/lib/auth";
+import { currentUser, setSessionCookie, userOrGuest } from "@/lib/auth";
 import { profileFor } from "@/lib/catalog";
 import { db } from "@/lib/db";
 import { parseProfile } from "@/lib/fit";
@@ -14,8 +14,7 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
-  const user = await currentUser();
-  if (!user) return fail(401, "Please log in to save your size details.");
+  const { user, newToken } = await userOrGuest();
   const body = await readJson(request);
   if (!body) return fail(400, "Request body must be valid JSON.");
   const p = parseProfile(body);
@@ -25,5 +24,5 @@ export async function PUT(request: Request) {
     VALUES (${user.id}, ${p.heightCm}, ${p.build}, ${p.top}, ${p.waist}, ${p.shoe}, ${p.pref}, NOW())
     ON CONFLICT (user_id) DO UPDATE SET height_cm = EXCLUDED.height_cm, build = EXCLUDED.build, top_size = EXCLUDED.top_size,
       waist = EXCLUDED.waist, shoe = EXCLUDED.shoe, fit_pref = EXCLUDED.fit_pref, updated_at = NOW()`;
-  return ok(await profileFor(user.id));
+  return setSessionCookie(ok(await profileFor(user.id)), newToken);
 }

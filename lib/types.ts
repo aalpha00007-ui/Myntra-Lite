@@ -95,7 +95,8 @@ export type OrderView = {
 };
 
 export type Me = {
-  user: { name: string; phone: string; initial: string } | null;
+  user: { name: string; username: string; initial: string } | null; // null = guest (no login needed)
+  isGuest: boolean;
   profile: Profile;
   isExample: boolean;
   wishlistCount: number;

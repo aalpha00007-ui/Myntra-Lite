@@ -11,7 +11,7 @@ const METHODS = ["cod", "upi", "card", "netbanking"];
 
 export async function GET(request: Request) {
   const user = await currentUser();
-  if (!user) return fail(401, "Please log in to see your orders.");
+  if (!user) return ok({ orders: [] });
   const id = Number(new URL(request.url).searchParams.get("id"));
   const orders = await ordersView(user.id, Number.isInteger(id) && id > 0 ? id : undefined);
   return ok({ orders });
@@ -19,7 +19,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const user = await currentUser();
-  if (!user) return fail(401, "Please log in to place an order.");
+  if (!user) return fail(400, "Your bag is empty.");
   const b = await readJson(request);
   if (!b) return fail(400, "Request body must be valid JSON.");
   const addressId = Number(b.addressId);

@@ -11,6 +11,7 @@ import type { ProductCard as Card } from "@/lib/types";
 const CIRCLES: [string, string, string][] = [
   ["Men", "/shop?dept=men", "shirt3"], ["Women", "/shop?dept=women", "dress"], ["Ethnic", "/shop?dept=women&sub=Ethnic%20Wear", "kurta2"],
   ["Jeans", "/shop?dept=men&sub=Jeans", "jeans"], ["Footwear", "/shop?dept=footwear", "sneaker2"], ["Blazers", "/shop?dept=men&sub=Blazers", "blazer"],
+  ["Hoodies", "/shop?dept=men&sub=Hoodies%20%26%20Sweaters", "grey-pullover-hoodie"], ["Heels", "/shop?dept=footwear&sub=Heels", "sandal"],
   ["Loafers", "/shop?dept=footwear&sub=Loafers", "loafer2"],
 ];
 
@@ -50,7 +51,7 @@ export default function Home() {
         <>
           <div className="cats">
             {CIRCLES.map(([label, href, id]) => (
-              <Link key={label} href={href} className="cat"><span className="c">{photoOf(id) ? <Photo id={photoOf(id)!} alt={label} w={200} crop={id.startsWith("loafer") || id.startsWith("sneaker") ? "" : "faces,center"} /> : null}</span>{label}</Link>
+              <Link key={label} href={href} className="cat"><span className="c">{photoOf(id) ? <Photo id={photoOf(id)!} alt={label} w={200} crop={["loafer2", "sneaker2", "sandal"].includes(id) ? "" : "faces,center"} /> : null}</span>{label}</Link>
             ))}
           </div>
           <div className="banners">

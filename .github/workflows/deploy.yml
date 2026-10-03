@@ -60,21 +60,30 @@ jobs:
           show "GET /api/products?dept=men&sort=fit" "$(curl -s 'localhost:3000/api/products?dept=men&sort=fit')"
           show "GET /api/products/kurta (Fit Twin for a guest = example size details)" "$(curl -s localhost:3000/api/products/kurta | jq -c '{name, fitDetail, summary}')"
           test "$(code localhost:3000/api/products/does-not-exist)" = "404"
-          test "$(code -X POST localhost:3000/api/bag -H 'Content-Type: application/json' -d '{"productId":"kurta","size":"M"}')" = "401"
-          test "$(code -X POST localhost:3000/api/wishlist -H 'Content-Type: application/json' -d '{"productId":"kurta"}')" = "401"
-          test "$(code -X POST localhost:3000/api/auth/login -H 'Content-Type: application/json' -d '{"name":"X","phone":"9876543210","otp":"0000"}')" = "400"
+          test "$(code -X POST localhost:3000/api/auth/login -H 'Content-Type: application/json' -d '{"username":"someone","password":"wrong"}')" = "400"
+          test "$(code -X POST localhost:3000/api/wishlist -H 'Content-Type: application/json' -d '{"productId":"no-such-thing"}')" = "400"
           test "$(code localhost:3000/api/results)" = "200"
-          test "$(curl -s localhost:3000/api/products | jq '.products | length')" -ge 27
-          echo; echo "Guest, unknown product, wrong OTP and logged-out bag/wishlist checks all passed."
+          for d in men women footwear; do
+            n=$(curl -s "localhost:3000/api/products?dept=$d" | jq '.products | length'); echo "$d: $n products"; test "$n" -ge 20
+          done
+          # A guest (no login, no cookie) can wishlist straight away and gets a guest session cookie back.
+          G=guest.txt; rm -f $G
+          check() { if ! echo "$2" | grep -q "$3"; then echo "::error title=Guest: $1::$(echo "$2" | head -c 300)"; exit 1; fi; echo "ok  $1"; }
+          check "guest can wishlist" "$(curl -s -c $G -b $G -H 'Content-Type: application/json' -X POST localhost:3000/api/wishlist -d '{"productId":"dress"}')" '"id":"dress"'
+          check "guest session kept" "$(curl -s -b $G localhost:3000/api/wishlist)" '"id":"dress"'
+          check "guest is a guest" "$(curl -s -b $G localhost:3000/api/me)" '"isGuest":true'
+          # Log the test guest into the CI account so it is merged away and never counted as a real tester.
+          check "guest merges on login" "$(curl -s -c $G -b $G -H 'Content-Type: application/json' -X POST localhost:3000/api/auth/login -d '{"username":"ci-test","password":"demo1234"}')" '"ci-test"'
+          echo; echo "Unknown product, wrong password, 20+ products per department and guest wishlist checks all passed."
 
-      - name: Test the Fit Twin journey end to end (test account, local copy)
+      - name: Test the Fit Twin journey end to end (test account ci-test, local copy)
         run: |
           npm start -- -p 3001 > server2.log 2>&1 &
           for i in $(seq 1 30); do curl -s localhost:3001 > /dev/null && break; sleep 1; done
           B=localhost:3001; J=cookies.txt
           req() { curl -s -b $J -c $J -H "Content-Type: application/json" "$@"; }
           check() { if ! echo "$2" | grep -q "$3"; then echo "::error title=End-to-end: $1::$(echo "$2" | head -c 400)"; exit 1; fi; echo "ok  $1"; }
-          check "login"            "$(req -X POST $B/api/auth/login -d '{"name":"CI Test","phone":"9000000000","otp":"1234"}')" '"CI Test"'
+          check "demo login"       "$(req -X POST $B/api/auth/login -d '{"username":"ci-test","password":"demo1234"}')" '"username":"ci-test"'
           check "save size details" "$(req -X PUT $B/api/profile -d '{"heightCm":172,"build":"broad","top":"L","waist":"32","shoe":"9","pref":"regular"}')" '"isExample":false'
           check "bad size details rejected" "$(req -X PUT $B/api/profile -d '{"heightCm":500,"build":"broad","top":"L","waist":"32","shoe":"9","pref":"regular"}')" 'Height must be'
           req -X DELETE "$B/api/bag?productId=kurta" > /dev/null
@@ -127,7 +136,7 @@ jobs:
         run: |
           URL="${{ steps.deploy.outputs.url }}"
           J=live.txt
-          curl -s -c $J -b $J -H "Content-Type: application/json" -X POST "$URL/api/auth/login" -d '{"name":"CI Test","phone":"9000000000","otp":"1234"}' > /dev/null
+          curl -s -c $J -b $J -H "Content-Type: application/json" -X POST "$URL/api/auth/login" -d '{"username":"ci-test","password":"demo1234"}' > /dev/null
           echo "\$ POST $URL/api/bag  size=XXXL"
           CODE=$(curl -s -b $J -o body.txt -w '%{http_code}' -X POST "$URL/api/bag" -H "Content-Type: application/json" -d '{"productId":"kurta","size":"XXXL"}')
           cat body.txt; echo "  [HTTP $CODE]"
