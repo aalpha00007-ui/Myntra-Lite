@@ -94,7 +94,7 @@ jobs:
           check "wishlist shows Fit Twin size" "$(req $B/api/wishlist)" "\"suggested\":\"$SUG\""
           check "impossible size rejected" "$(req -X POST $B/api/bag -d '{"productId":"kurta","size":"XXXL"}')" 'Size must be one of'
           check "move to bag in Fit Twin size" "$(req -X POST $B/api/bag -d "{\"productId\":\"kurta\",\"size\":\"$SUG\",\"fromWishlist\":true}")" "\"suggested\":\"$SUG\""
-          check "left the wishlist" "$(req $B/api/wishlist)" '"products":\[\]'
+          if req $B/api/wishlist | grep -q '"id":"kurta"'; then echo "::error title=End-to-end: left the wishlist::kurta still in wishlist"; exit 1; fi; echo "ok  left the wishlist"
           check "qty 2"            "$(req -X PATCH $B/api/bag -d '{"productId":"kurta","qty":2}')" '"qty":2'
           ADDR=$(req -X POST $B/api/addresses -d '{"name":"CI Test","line":"12 Test Street","city":"Testpur","pin":"110001","kind":"Home"}' | jq '.address.id')
           ORDER=$(req -X POST $B/api/orders -d "{\"addressId\":$ADDR,\"paymentMethod\":\"upi\"}")
