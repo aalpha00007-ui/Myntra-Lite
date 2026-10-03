@@ -14,10 +14,11 @@ export default function ResultsPage() {
       {!r ? <Loading /> : (
         <>
           <p className="muted" style={{ padding: "12px 12px 0", fontSize: ".88rem", margin: 0 }}>
-            North-star metric: of the items testers saved to their wishlist, how many they went on to buy.
+            Business metric: of the testers who wishlisted something, how many bought a wishlisted item within 30 days. Fit Twin&apos;s outcome: wishlisted items added to the bag within 14 days.
           </p>
           <div className="stats">
-            {[[r.conversionLabel, "Wishlist → purchase"], [r.fitTwinShareLabel, "Bought in the Fit Twin size"], [String(r.testers), "Testers"],
+            {[[r.northStarLabel, `Wishlist → purchase in 30 days (${r.wishlistersWhoBought} of ${r.wishlisters} people)`], [r.decisionRateLabel, "Added to bag within 14 days"],
+              [r.conversionLabel, "Wishlisted items bought"], [r.fitTwinShareLabel, "Bought in the Fit Twin size"], [String(r.testers), "Testers"],
               [String(r.wishlistedItems), "Items wishlisted"], [String(r.orderedFromWishlist), "Wishlisted items bought"], [String(r.unsure), "Still unsure"],
               [String(r.notForMe), "Not for me / removed"]].map(([v, l]) => (
               <div className="stat" key={l}><div className="n mono">{v}</div><div className="l">{l}</div></div>

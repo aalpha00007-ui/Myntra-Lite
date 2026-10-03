@@ -102,7 +102,7 @@ jobs:
           OID=$(echo "$ORDER" | jq '.orderId')
           check "bag emptied"      "$(req $B/api/bag)" '"count":0'
           check "order took Fit Twin size" "$(req "$B/api/orders?id=$OID")" '"tookFitTwin":true'
-          check "results compute"  "$(curl -s $B/api/results)" '"conversionLabel"'
+          check "results compute"  "$(curl -s $B/api/results)" '"northStarLabel"'
           echo "::notice title=End-to-end Fit Twin test::size details, wishlist, move to bag in size $SUG, address, order #$OID all passed"
 
       - name: Deploy to Vercel

@@ -105,9 +105,13 @@ export type Me = {
 
 export type Results = {
   testers: number;
+  wishlisters: number; // testers who wishlisted at least one item
+  wishlistersWhoBought: number; // ...and bought a wishlisted item within 30 days of saving it
+  northStarLabel: string; // wishlist -> purchase within 30 days, counted per person (the business metric)
+  decisionRateLabel: string; // wishlisted items added to bag within 14 days (Fit Twin's outcome)
   wishlistedItems: number;
   orderedFromWishlist: number;
-  conversionLabel: string; // wishlist -> purchase, the north-star metric
+  conversionLabel: string; // wishlisted items bought (item level)
   fitTwinShareLabel: string; // of wishlisted items ordered, share in the Fit Twin size
   unsure: number;
   notForMe: number;

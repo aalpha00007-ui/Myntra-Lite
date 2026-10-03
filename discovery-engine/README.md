@@ -3,14 +3,14 @@
 An AI workflow that reads public posts about shopping on Myntra and turns each one into structured, quote-backed evidence about the wishlist-to-purchase journey.
 
 ## Try it
-**Live test link:** _paste the Production URL of workflow 3 here once it is active_ - open it, paste any review or comment (Hinglish works), and see how the engine tags it.
+Workflow 3 is a public page: import it, select the Gemini credential, switch it to Active and open the **Public page** node's Production URL. Paste any review or comment (Hinglish works) to see how the engine tags it.
 
 ## How it works
 1. **Collect** (workflow 1): Myntra App Store reviews (RSS, 10 pages) and YouTube comments on Myntra videos (YouTube Data API, Myntra-only titles). Reddit search is built in but switched off until Reddit approves API access. Survey answers can be added through a `manual_sources` sheet tab.
-2. **Clean**: removes duplicates and very short posts, keeps Myntra posts only, puts posts with buying words first, skips posts already tagged.
-3. **Tag** (Gemini, free tier): one call per post with a fixed label taxonomy covering wishlist reasons, blockers, uncertainties, postponement triggers, outside sources, comparison behaviour, intent, segment, unmet need and severity (1-3). Every label must be backed by a verbatim quote, and quotes are checked against the post. Placeholder answers are removed and praise-only posts are marked not relevant.
+2. **Clean**: removes duplicates and very short posts, keeps posts from Myntra's App Store page and Myntra videos, puts posts with buying words first, skips posts already tagged.
+3. **Tag** (Gemini, free tier): one call per post with a fixed label taxonomy covering wishlist reasons, blockers, uncertainties, postponement triggers, outside sources, comparison behaviour, intent, segment, unmet need and severity (1-3). The model is asked to back every label with a verbatim quote; quotes are checked word for word against the post (145 of 161 blocker tags in the run carry their own quote). Placeholder answers are removed and praise-only posts are marked not relevant.
 4. **Store**: one row per post in the `tagged` Google Sheet.
-5. **Analyse** (workflow 2): counts each label, the share of relevant posts, average severity and the share among genuine buying intent. It ranks opportunities by frequency x severity x metric fit and writes them to the `insights` tab, plus a 50-row `validation` sample for a human check.
+5. **Analyse** (workflow 2): counts each label, the share of relevant posts, average severity and the share among genuine buying intent. It ranks opportunities with a weighted score (0.30 frequency, 0.20 severity, 0.15 share among genuine intent, 0.20 metric fit and 0.15 feasibility; the last two are set by hand per lever), writes them to the `insights` tab, and draws a 50-row `validation` sample for a human check (pending).
 
 ## Files
 | File | What it is |
