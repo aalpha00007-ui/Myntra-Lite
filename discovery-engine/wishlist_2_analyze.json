@@ -1,0 +1,202 @@
+{
+  "name": "Wishlist Discovery - 2 Analyze (insights + validation)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-b",
+      "name": "Start: analyze",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1mQNo6DBGiD5yCAPUj5HNz5memdCVfJcXeoDo3yUvRTE/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "tagged",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-tagged-rows",
+      "name": "Read tagged rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        260,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Opportunity scoring weights: frequency .30, severity .20, share among genuine-intent users .15,\n// metric fit .20, feasibility .15. Edit FEAS and FIT (1-5) with your own judgement.\nconst FEAS = {\"fit_size_uncertainty\": 3, \"reviews_photos_insufficient\": 4, \"styling_confusion\": 4, \"needs_social_validation\": 4, \"returns_refund_fear\": 3, \"price_too_high_or_waiting_for_sale\": 2, \"discount_unpredictability\": 3, \"out_of_stock_or_size_missing\": 4, \"occasion_timing_not_urgent\": 5, \"compare_with_other_platform\": 3, \"quality_fabric_doubt\": 3, \"wishlist_ux_problem\": 5, \"cart_checkout_friction\": 4, \"delivery_time_or_cost\": 2, \"trust_authenticity_concern\": 3};\nconst FIT = {\"fit_size_uncertainty\": 5, \"reviews_photos_insufficient\": 4, \"styling_confusion\": 3, \"needs_social_validation\": 3, \"returns_refund_fear\": 4, \"price_too_high_or_waiting_for_sale\": 2, \"discount_unpredictability\": 2, \"out_of_stock_or_size_missing\": 4, \"occasion_timing_not_urgent\": 4, \"compare_with_other_platform\": 3, \"quality_fabric_doubt\": 3, \"wishlist_ux_problem\": 5, \"cart_checkout_friction\": 3, \"delivery_time_or_cost\": 2, \"trust_authenticity_concern\": 3};\nconst LEVER = {\"fit_size_uncertainty\": \"confidence\", \"reviews_photos_insufficient\": \"confidence\", \"quality_fabric_doubt\": \"confidence\", \"styling_confusion\": \"confidence\", \"needs_social_validation\": \"confidence\", \"trust_authenticity_concern\": \"confidence\", \"returns_refund_fear\": \"risk_reduction\", \"price_too_high_or_waiting_for_sale\": \"price_timing\", \"discount_unpredictability\": \"price_timing\", \"out_of_stock_or_size_missing\": \"availability\", \"occasion_timing_not_urgent\": \"reminder_urgency\", \"compare_with_other_platform\": \"comparison\", \"delivery_time_or_cost\": \"logistics\", \"cart_checkout_friction\": \"friction\", \"wishlist_ux_problem\": \"wishlist_product\"};\n\nconst truthy = v => v === true || ['TRUE', 'YES'].includes(String(v).toUpperCase());\nconst split = s => String(s || '').split('|').map(x => x.trim()).filter(Boolean);\nconst all = $input.all().map(i => i.json).filter(r => r && r.id);\nconst rel = all.filter(r => truthy(r.relevant));\nconst N = rel.length;\nif (!N) return [];\nconst SKIP = new Set(['none',  'none_mentioned', 'no_blocker_purchased']);\nconst sev = r => { const s = parseInt(r.severity, 10); return s >= 1 && s <= 3 ? s : 1; };\nconst isGen = r => r.intent === 'genuine_purchase_intent';\nconst G = Math.max(rel.filter(isGen).length, 1);\n\nconst quotes = {};\nfor (const r of rel) {\n  let ev = [];\n  try { ev = JSON.parse(r.evidence || '[]'); } catch (e) {}\n  for (const e of ev) if (e && e.label && e.quote && !quotes[e.label]) quotes[e.label] = String(e.quote).slice(0, 200);\n}\n\nfunction stats(field) {\n  const m = {};\n  for (const r of rel) for (const lab of new Set(split(r[field]))) {\n    if (SKIP.has(lab)) continue;\n    const o = m[lab] = m[lab] || { n: 0, sev: 0, g: 0, ab: 0 };\n    o.n++; o.sev += sev(r); if (isGen(r)) o.g++; if (sev(r) === 3) o.ab++;\n  }\n  return Object.entries(m).map(([label, o]) => ({ label, count: o.n,\n    pct: +(o.n / N * 100).toFixed(1), avg_sev: +(o.sev / o.n).toFixed(2),\n    g: +(o.g / G * 100).toFixed(1), ab: +(o.ab / o.n * 100).toFixed(1) })).sort((a, b) => b.count - a.count);\n}\n\nconst out = [];\nconst row = (key, section, label, extra) => out.push({ json: Object.assign({\n  key, section, label, count: '', pct_of_relevant: '', avg_severity: '', pct_among_genuine_intent: '',\n  abandon_pct: '', lever: '', opportunity_score: '', top_quote: '' }, extra) });\n\nrow('meta|total_tagged', 'meta', 'all tagged posts', { count: all.length });\nrow('meta|relevant_posts', 'meta', 'relevant posts', { count: N });\n\nconst bySrc = {};\nfor (const r of rel) bySrc[r.source] = (bySrc[r.source] || 0) + 1;\nObject.entries(bySrc).forEach(([s, n]) => row('source|' + s, 'source', s, { count: n, pct_of_relevant: +(n / N * 100).toFixed(1) }));\n\nconst byIntent = {};\nfor (const r of rel) byIntent[r.intent || '(not stated)'] = (byIntent[r.intent || '(not stated)'] || 0) + 1;\nObject.entries(byIntent).forEach(([s, n]) => row('intent|' + s, 'intent', s, { count: n, pct_of_relevant: +(n / N * 100).toFixed(1) }));\n\n// blockers with opportunity score\nconst B = stats('blockers');\nconst norm = (v, arr) => { const mn = Math.min(...arr), mx = Math.max(...arr); return mx > mn ? (v - mn) / (mx - mn) : 0.5; };\nconst f1 = B.map(x => x.pct), f2 = B.map(x => x.avg_sev), f3 = B.map(x => x.g);\nconst f4 = B.map(x => FIT[x.label] || 3), f5 = B.map(x => FEAS[x.label] || 3);\nB.forEach(x => {\n  x.score = +(0.30 * norm(x.pct, f1) + 0.20 * norm(x.avg_sev, f2) + 0.15 * norm(x.g, f3) +\n              0.20 * norm(FIT[x.label] || 3, f4) + 0.15 * norm(FEAS[x.label] || 3, f5)).toFixed(3);\n});\nB.sort((a, b) => b.score - a.score).forEach(x => row('blocker|' + x.label, 'blocker', x.label, {\n  count: x.count, pct_of_relevant: x.pct, avg_severity: x.avg_sev, pct_among_genuine_intent: x.g,\n  abandon_pct: x.ab, lever: LEVER[x.label] || 'other', opportunity_score: x.score, top_quote: quotes[x.label] || '' }));\n\nfor (const [field, section] of [['postponement_trigger', 'postponement'], ['wishlist_reasons', 'wishlist_reason'], ['uncertainties', 'uncertainty'], ['outside_sources', 'outside_source']]) {\n  stats(field).forEach(x => row(section + '|' + x.label, section, x.label, {\n    count: x.count, pct_of_relevant: x.pct, avg_severity: x.avg_sev, top_quote: quotes[x.label] || '' }));\n}\n\n// segments and segment x blocker (known segments only)\nconst segs = {};\nfor (const r of rel) { const s = r.segment || '(not stated)'; segs[s] = (segs[s] || 0) + 1; }\nObject.entries(segs).forEach(([s, n]) => row('segment|' + s, 'segment', s, { count: n, pct_of_relevant: +(n / N * 100).toFixed(1) }));\nconst sb = {};\nfor (const r of rel) {\n  const s = r.segment || '';\n  if (!s) continue;\n  for (const b of new Set(split(r.blockers))) { if (SKIP.has(b)) continue; const k = s + '|' + b; sb[k] = (sb[k] || 0) + 1; }\n}\nObject.entries(sb).filter(([k, n]) => n >= 2).forEach(([k, n]) => {\n  const [s, b] = k.split('|');\n  row('segxblock|' + k, 'segment_x_blocker', s + ' x ' + b, { count: n, pct_of_relevant: +(n / segs[s] * 100).toFixed(1) });\n});\n\n// intent by segment (wishlist as purchase intent vs bookmarking, per segment)\nconst si = {};\nfor (const r of rel) { const s = r.segment || ''; if (!s) continue; const k = s + '|' + (r.intent || '(not stated)'); si[k] = (si[k] || 0) + 1; }\nObject.entries(si).forEach(([k, n]) => { const [s, i] = k.split('|');\n  row('segxintent|' + k, 'segment_x_intent', s + ' x ' + i, { count: n, pct_of_relevant: +(n / segs[s] * 100).toFixed(1) }); });\n\n// lever rollup: which product lever (Part 2 metric driver) carries the most weighted evidence\nconst lv = {};\nB.forEach(x => { const l = LEVER[x.label] || 'other'; const o = lv[l] = lv[l] || { n: 0, sc: 0, labs: [] }; o.n += x.count; o.sc += x.score; o.labs.push(x.label); });\nObject.entries(lv).sort((a, b) => b[1].sc - a[1].sc).forEach(([l, o]) => row('lever|' + l, 'lever_rollup', l,\n  { count: o.n, opportunity_score: +o.sc.toFixed(3), top_quote: o.labs.join(', ') }));\n\n// how users compare shortlisted items (first 15 examples)\nrel.filter(r => r.comparison_behavior).slice(0, 15).forEach(r => row('cmp|' + r.id, 'comparison_behavior', r.comparison_behavior, { top_quote: String(r.text).slice(0, 200) }));\n\n// unmet needs (first 15)\nrel.filter(r => r.unmet_need).slice(0, 15).forEach((r, i) => row('unmet|' + r.id, 'unmet_need', r.unmet_need, { top_quote: String(r.text).slice(0, 200) }));\nreturn out;"
+      },
+      "id": "compute",
+      "name": "Compute insights",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1mQNo6DBGiD5yCAPUj5HNz5memdCVfJcXeoDo3yUvRTE/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "insights",
+          "mode": "name"
+        },
+        "options": {},
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "key"
+          ],
+          "schema": []
+        }
+      },
+      "id": "save-insights",
+      "name": "Save insights",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        780,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Deterministic sample (same 50 every run) so your hand labels are never overwritten.\nconst truthy = v => v === true || ['TRUE', 'YES'].includes(String(v).toUpperCase());\nconst hash = s => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return h >>> 0; };\nconst rel = $input.all().map(i => i.json).filter(r => r && r.id && truthy(r.relevant));\nrel.sort((a, b) => hash(String(a.id)) - hash(String(b.id)));\nreturn rel.slice(0, 50).map(r => ({ json: { id: r.id, source: r.source, text: String(r.text).slice(0, 500),\n  llm_blockers: r.blockers, llm_intent: r.intent, llm_segment: r.segment } }));"
+      },
+      "id": "valid",
+      "name": "Validation sample",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1mQNo6DBGiD5yCAPUj5HNz5memdCVfJcXeoDo3yUvRTE/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "validation",
+          "mode": "name"
+        },
+        "options": {},
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": []
+        }
+      },
+      "id": "save-validation",
+      "name": "Save validation",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        780,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## ANALYSIS (separate run)\nClick `Start: analyze` after tagging. It rewrites the `insights` tab (counts, segment cuts, ranked opportunity table) and fills 50 rows in `validation` for you to hand-label.",
+        "height": 150,
+        "width": 560,
+        "color": 6
+      },
+      "id": "note-analysis",
+      "name": "Note analysis",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -20,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Start: analyze": {
+      "main": [
+        [
+          {
+            "node": "Read tagged rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read tagged rows": {
+      "main": [
+        [
+          {
+            "node": "Compute insights",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Validation sample",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute insights": {
+      "main": [
+        [
+          {
+            "node": "Save insights",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validation sample": {
+      "main": [
+        [
+          {
+            "node": "Save validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

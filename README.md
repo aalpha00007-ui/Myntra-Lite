@@ -4,6 +4,11 @@ A learning project: a fashion shopping app built to test **Fit Twin**, a wishlis
 
 **Not affiliated with Myntra.** Brands, prices and reviews are demo data. Product photos come from [Unsplash](https://unsplash.com) under the Unsplash License.
 
+## Case study links
+- Live app: https://myntra-lite.vercel.app
+- AI discovery engine (n8n workflows and how they work): [`discovery-engine/`](discovery-engine/)
+- Primary research (anonymised survey, interview guide): [`research/`](research/)
+
 ## What's inside
 - Home, categories, product listings with filters, product pages, wishlist, bag → address → demo payment, orders, profile.
 - **Fit Twin**: every product shows a suggested size for you, worked out on each request from reviews (reviewer height, build, usual size, size kept, fit). Set yours under Profile → Size Details.

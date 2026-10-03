@@ -1,0 +1,831 @@
+{
+  "name": "Wishlist Discovery - 1 Collect and Tag (Hybrid, Free)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## SETUP CHECKLIST (hybrid: online App Store + YouTube, offline Reddit)\n1. Google Sheet tabs: `tagged` (18 headers), `reddit_offline` and `manual_sources` (both: source, platform, date, text).\n2. `reddit_offline`: paste public Reddit comments you copied by hand, one per row (source = reddit_offline, platform = myntra/ajio).\n3. `manual_sources`: survey answers, interview notes, Play Store reviews.\n4. Pick your Google credential on the 4 Sheets nodes (green). Gemini tagging: Header Auth `x-goog-api-key`.\n5. YouTube nodes use your Query Auth credential (name `key`). Reddit search is in the flow but has no credential yet: it fails quietly until you add Reddit OAuth2 (after approval).\n6. MAX_ITEMS in `Clean, filter and cap` = 250. Run again if it stops; saved posts are skipped.\nAnalysis is a separate workflow: `2 Analyze`.",
+        "height": 300,
+        "width": 760,
+        "color": 4
+      },
+      "id": "note-setup",
+      "name": "Note setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -20,
+        -330
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "trigger-a",
+      "name": "Start: collect and tag",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1mQNo6DBGiD5yCAPUj5HNz5memdCVfJcXeoDo3yUvRTE/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "tagged",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-tagged-ids",
+      "name": "Read tagged ids",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        240,
+        300
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Which apps and how many review pages (each page ~50 reviews).\n// VERIFY the App Store IDs on apps.apple.com before a big run.\nconst apps = [\n  { platform: 'myntra', appId: 907394059 },\n];\nconst pages = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];\nconst out = [];\nfor (const a of apps) for (const p of pages) out.push({ json: { ...a, page: p } });\nreturn out;"
+      },
+      "id": "apps",
+      "name": "Apps",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://itunes.apple.com/in/rss/customerreviews/page={{ $json.page }}/id={{ $json.appId }}/sortby=mostrecent/json",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "app-store-reviews",
+      "name": "App Store reviews",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        40
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const apps = $('Apps').all();\nconst out = [];\n$input.all().forEach((it, i) => {\n  const platform = (apps[i] && apps[i].json.platform) || '';\n  const feed = it.json && it.json.feed;\n  const entries = [].concat((feed && feed.entry) || []);\n  for (const e of entries) {\n    if (!e || !e.content) continue;              // first entry is the app itself\n    out.push({ json: { id: 'as_' + e.id.label, source: 'app_store', platform: platform,\n      date: String(e.updated.label).slice(0, 10), text: e.title.label + '. ' + e.content.label } });\n  }\n});\nreturn out.length ? out : [{ json: { _empty: true } }];"
+      },
+      "id": "norm-as",
+      "name": "Normalize App Store",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        940,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Wishlist / cart / hesitation focused searches. Edit freely.\nconst subs = ['IndianFashionAddicts', 'IndianFashion', 'femalefashionadvice', 'all'];\nconst queries = ['myntra wishlist', 'myntra saved items not buying', 'myntra size fit',\n                 'myntra return refund', 'myntra vs ajio', 'waiting for sale myntra', 'myntra delivery problem'];\nconst out = [];\nfor (const sub of subs) for (const q of queries) out.push({ json: { sub, q } });\nreturn out;"
+      },
+      "id": "reddit-q",
+      "name": "Reddit queries",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.sub === 'all' ? 'https://oauth.reddit.com/search' : 'https://oauth.reddit.com/r/' + $json.sub + '/search' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "redditOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json.q }}"
+            },
+            {
+              "name": "restrict_sr",
+              "value": "={{ $json.sub === 'all' ? '0' : '1' }}"
+            },
+            {
+              "name": "sort",
+              "value": "relevance"
+            },
+            {
+              "name": "t",
+              "value": "year"
+            },
+            {
+              "name": "limit",
+              "value": "50"
+            },
+            {
+              "name": "raw_json",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "n8n:wishlist-discovery:0.1 (research)"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "reddit-search",
+      "name": "Reddit search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        220
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "const guess = t => /myntra/i.test(t) ? 'myntra' : /ajio/i.test(t) ? 'ajio' : /nykaa/i.test(t) ? 'nykaa_fashion' : '';\nconst out = [];\nfor (const it of $input.all()) {\n  const kids = (it.json && it.json.data && it.json.data.children) || [];\n  for (const k of kids) {\n    const d = k && k.data;\n    if (!d || !d.id) continue;\n    const text = (d.title || '') + '. ' + (d.selftext || '');\n    out.push({ json: { id: 'rd_' + d.id, source: 'reddit_post', platform: guess(text),\n      date: new Date((d.created_utc || 0) * 1000).toISOString().slice(0, 10), text: text } });\n  }\n}\nreturn out.length ? out : [{ json: { _empty: true } }];"
+      },
+      "id": "norm-reddit",
+      "name": "Normalize Reddit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        940,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Myntra-only searches. A video is kept only if its title or description mentions Myntra.\nconst queries = ['myntra wishlist', 'myntra vs ajio', 'myntra haul worth it', 'myntra size fit problem',\n                 'myntra return experience', 'myntra sale shopping tips', 'myntra end of reason sale haul',\n                 'myntra fake product review', 'myntra delivery problem', 'myntra honest review',\n                 'myntra try on haul', 'myntra vs amazon fashion', 'myntra vs nykaa fashion', 'myntra vs meesho'];\nreturn queries.map(q => ({ json: { q } }));"
+      },
+      "id": "yt-q",
+      "name": "YouTube queries",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/youtube/v3/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "part",
+              "value": "snippet"
+            },
+            {
+              "name": "q",
+              "value": "={{ $json.q }}"
+            },
+            {
+              "name": "type",
+              "value": "video"
+            },
+            {
+              "name": "maxResults",
+              "value": "15"
+            },
+            {
+              "name": "regionCode",
+              "value": "IN"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "youtube-video-search",
+      "name": "YouTube video search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        400
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const seen = new Set();\nconst out = [];\nfor (const it of $input.all()) {\n  const items = (it.json && it.json.items) || [];\n  for (const v of items) {\n    const id = v && v.id && v.id.videoId;\n    const sn = (v && v.snippet) || {};\n    const label = (sn.title || '') + ' ' + (sn.description || '');\n    if (!id || seen.has(id) || !/myntra/i.test(label)) continue;   // Myntra videos only\n    seen.add(id);\n    out.push({ json: { videoId: id, videoTitle: sn.title || '' } });\n  }\n}\nreturn out.length ? out : [{ json: { _skip: true } }];"
+      },
+      "id": "video-ids",
+      "name": "Video IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        940,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/youtube/v3/commentThreads",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "part",
+              "value": "snippet"
+            },
+            {
+              "name": "videoId",
+              "value": "={{ $json.videoId }}"
+            },
+            {
+              "name": "maxResults",
+              "value": "100"
+            },
+            {
+              "name": "order",
+              "value": "relevance"
+            },
+            {
+              "name": "textFormat",
+              "value": "plainText"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "youtube-comments",
+      "name": "YouTube comments",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1160,
+        400
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const vids = $('Video IDs').all();\nconst out = [];\n$input.all().forEach((it, i) => {\n  const items = (it.json && it.json.items) || [];\n  const v = (vids[i] && vids[i].json) || {};\n  for (const c of items) {\n    const s = c && c.snippet && c.snippet.topLevelComment && c.snippet.topLevelComment.snippet;\n    if (!s) continue;\n    const text = String(s.textDisplay || s.textOriginal || '').replace(/<[^>]+>/g, ' ');\n    out.push({ json: { id: 'yt_' + c.id, source: 'youtube_comment', platform: 'myntra',\n      date: String(s.publishedAt || '').slice(0, 10), text: text } });\n  }\n});\nreturn out.length ? out : [{ json: { _empty: true } }];"
+      },
+      "id": "norm-yt",
+      "name": "Normalize YouTube",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1mQNo6DBGiD5yCAPUj5HNz5memdCVfJcXeoDo3yUvRTE/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "manual_sources",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-manual-sources",
+      "name": "Read manual sources",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        500,
+        580
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const guess = t => /myntra/i.test(t) ? 'myntra' : /ajio/i.test(t) ? 'ajio' : /nykaa/i.test(t) ? 'nykaa_fashion' : '';\nconst hash = s => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };\nconst out = [];\nfor (const it of $input.all()) {\n  const r = it.json || {};\n  const text = String(r.text || '').trim();\n  if (!text) continue;\n  out.push({ json: { id: 'man_' + hash(text), source: r.source || 'survey',\n    platform: r.platform || guess(text), date: r.date || '', text: text } });\n}\nreturn out.length ? out : [{ json: { _empty: true } }];"
+      },
+      "id": "norm-manual",
+      "name": "Normalize manual",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        580
+      ]
+    },
+    {
+      "parameters": {
+        "numberInputs": 5
+      },
+      "id": "merge",
+      "name": "Merge sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1620,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---- settings ----\nconst MAX_ITEMS = 250;  // posts tagged per run. Lower it (e.g. 20) for a quick test. 0 = no limit.\n// ------------------\nconst KEY = /wishlist|wish list|saved|bookmark|cart|checkout|size|sizing|fit|return|refund|exchange|price|sale|discount|coupon|eoss|offer|compare|ajio|nykaa|meesho|amazon|flipkart|review|quality|fabric|colour|color|wedding|festival|occasion|outfit|style|styling|waiting|wait for|later|stock|delivery|trust|fake|scam|original|genuine|worth|expensive|cheap|brand/i;\nconst STRONG = /wishlist|wish list|saved|bookmark|cart|waiting for|wait for|compare|later/i;\nconst done = new Set();\ntry {\n  for (const r of $('Read tagged ids').all()) {\n    if (r.json && r.json.id && !r.json.error) done.add(String(r.json.id));   // rows with an error get re-tagged\n  }\n} catch (e) {}\nconst seen = new Set();\nconst pool = [];\nfor (const it of $input.all()) {\n  const j = it.json || {};\n  if (!j.text || !j.id || done.has(String(j.id))) continue;\n  const text = String(j.text).replace(/https?:\\/\\/\\S+/g, ' ').replace(/\\s+/g, ' ').trim();\n  if (text.split(' ').length < 8 || text.length > 3000) continue;\n  if (!KEY.test(text) || seen.has(text)) continue;\n  if (j.platform !== 'myntra' && !/myntra/i.test(text)) continue;     // Myntra only\n  seen.add(text);\n  pool.push({ ...j, text, _p: STRONG.test(text) ? 1 : 0 });\n}\n// diversity: interleave sources, wishlist-heavy posts first inside each source\nconst by = {};\npool.sort((a, b) => b._p - a._p).forEach(p => { (by[p.source] = by[p.source] || []).push(p); });\nconst lists = Object.values(by);\nconst out = [];\nlet i = 0;\nwhile (lists.some(l => l.length)) { const l = lists[i % lists.length]; if (l.length) out.push(l.shift()); i++; }\nconst final = MAX_ITEMS > 0 ? out.slice(0, MAX_ITEMS) : out;\nreturn final.map(p => { const { _p, ...rest } = p; return { json: rest }; });"
+      },
+      "id": "clean",
+      "name": "Clean, filter and cap",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1840,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2060,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// >>> If you get 'model not found', change MODEL to a model name listed in Google AI Studio.\nconst MODEL = \"gemini-3.5-flash-lite\";\nconst PROMPT = \"You are a consumer-research analyst for an Indian online fashion marketplace.\\nYou read ONE public post (app review, Reddit post/comment, YouTube comment, or Q&A) and extract\\nstructured evidence about the wishlist-to-purchase journey.\\n\\nRules:\\n1. Use ONLY labels from the allowed lists. Never invent labels.\\n2. Only tag what the text actually supports. Set \\\"relevant\\\": true if the post mentions ANY factor that\\n   affects whether the user buys, returns or avoids fashion on this platform (fit/size, price/sale,\\n   trust/authenticity, quality, returns/refunds, delivery, comparison with other platforms,\\n   wishlist/saving/hesitation, app problems that block buying). Set it false only for generic praise\\n   or complaints with no such factor, and then leave all lists empty.\\n3. Every blocker, uncertainty and wishlist reason MUST be backed by a short verbatim quote\\n   (max 25 words) copied exactly from the post, in \\\"evidence\\\".\\n4. Do not guess demographics. Use a segment only if signalled (e.g. \\\"plus size\\\", \\\"student\\\",\\n   \\\"waiting for EOSS\\\", \\\"wedding shopping\\\"). Otherwise \\\"unknown\\\".\\n5. Posts may be Hinglish or contain typos. Understand them, but keep quotes verbatim.\\n6. \\\"intent\\\" meanings:\\n   - genuine_purchase_intent: saved with a plan to buy soon\\n   - bookmarking_only: saved for inspiration/browsing, no plan to buy\\n   - price_watching: saved only to wait for a price drop/sale\\n   - unclear: not enough information\\n7. \\\"unmet_need\\\" is one short sentence in your own words: what the user wishes the app did.\\n   Leave \\\"\\\" if none.\\n8. Return JSON only, matching the schema. No commentary.\\n\\nAllowed labels\\nwishlist_reasons: ['price_watch', 'bookmark_inspiration', 'occasion_planning', 'compare_later', 'gift_or_ask_others', 'size_unavailable', 'other']\\nblockers: ['fit_size_uncertainty', 'price_too_high_or_waiting_for_sale', 'discount_unpredictability', 'reviews_photos_insufficient', 'quality_fabric_doubt', 'returns_refund_fear', 'delivery_time_or_cost', 'out_of_stock_or_size_missing', 'styling_confusion', 'occasion_timing_not_urgent', 'compare_with_other_platform', 'needs_social_validation', 'cart_checkout_friction', 'trust_authenticity_concern', 'wishlist_ux_problem', 'no_blocker_purchased', 'none_mentioned']\\nuncertainties: ['fit', 'size', 'fabric_quality', 'colour_accuracy', 'price_fairness', 'styling', 'occasion_suitability', 'return_policy', 'delivery_date', 'authenticity', 'review_credibility', 'none']\\noutside_sources: ['instagram', 'youtube', 'reddit', 'google_search', 'other_shopping_app', 'friends_family', 'brand_website', 'offline_store_trial', 'price_tracker', 'whatsapp_group', 'none']\\nintent: ['genuine_purchase_intent', 'bookmarking_only', 'price_watching', 'unclear']\\nsegments: ['value_seeker', 'trend_follower', 'occasion_shopper', 'size_challenged', 'plus_size', 'first_time_online_buyer', 'male_shopper', 'beauty_shopper', 'gen_z', 'working_professional', 'unknown']\\nplatforms: ['myntra', 'ajio', 'nykaa_fashion', 'meesho', 'amazon', 'flipkart', 'other', 'unknown']\\n\\n\\nOUTPUT FORMAT\\nReturn ONE JSON object and nothing else (no markdown, no code fences) with exactly these keys:\\n{\\n  \\\"relevant\\\": true or false,\\n  \\\"platform\\\": one of the allowed platforms,\\n  \\\"intent\\\": one of the allowed intent values,\\n  \\\"wishlist_reasons\\\": [allowed labels],\\n  \\\"blockers\\\": [allowed labels],\\n  \\\"uncertainties\\\": [allowed labels],\\n  \\\"outside_sources\\\": [allowed labels],\\n  \\\"postponement_trigger\\\": [labels from: waiting_for_sale_or_price_drop, waiting_for_payday_or_budget, no_occasion_yet, checking_other_platforms, asking_friends_or_family, waiting_for_restock_or_size, unresolved_fit_or_quality_doubt, forgot_or_distracted, comparing_shortlisted_items, none  (why the user delayed or is delaying a purchase; [] if not mentioned)],\\n  \\\"comparison_behavior\\\": \\\"how the user compares shortlisted items or platforms (e.g. 'checks same item on Ajio and Amazon', 'compares 3 kurtas by reviews'), or empty string\\\",\\n  \\\"segment\\\": one of the allowed segments,\\n  \\\"unmet_need\\\": \\\"one short sentence or empty string\\\",\\n  \\\"evidence\\\": [{\\\"label\\\": \\\"a label you used\\\", \\\"quote\\\": \\\"verbatim quote from the post, max 25 words\\\"}],\\n  \\\"severity\\\": 1, 2 or 3\\n}\\nUse empty arrays when nothing applies. Use only the allowed labels listed above.\\n\\nNO PLACEHOLDERS\\nNever output unknown, unclear, none, N/A, null or false as a value. If a field is not supported by the post, use an empty array or \\\"\\\".\\nBefore leaving a field empty, read the post again and extract what the user's own words reasonably imply\\n(e.g. \\\"price dropped after I bought\\\" implies price_too_high_or_waiting_for_sale / discount_unpredictability; \\\"no size left\\\" implies out_of_stock_or_size_missing).\\nunmet_need must state the underlying need from the user's side (e.g. \\\"User needs reliable size guidance before buying\\\"), never just \\\"user dislikes product\\\".\\ncomparison_behavior: write what the user compared and how (\\\"Compared with Amazon: better size information\\\"); empty if no comparison.\\nJudge severity only from the text: 3 = prevents or abandons the purchase, 2 = real friction but user continues, 1 = minor.\\nintent: use genuine_purchase_intent only when the user is planning or trying to buy; leave intent empty for praise or complaints about an already completed purchase.\\nEvidence labels must be real labels from the allowed lists (never none or no_blocker_purchased). Evidence must be an exact quote from the post. If the post has no problem, need or decision factor, set relevant to false and leave all other fields empty.\";\n\nconst post = $input.item.json;\nconst userText = 'Source: ' + post.source + '\\nPlatform hint: ' + post.platform + '\\nPost:\\n<<<' + post.text + '>>>';\nreturn { json: {\n  post,\n  model: MODEL,\n  requestBody: {\n    systemInstruction: { parts: [{ text: PROMPT }] },\n    contents: [{ role: 'user', parts: [{ text: userText }] }],\n    generationConfig: { responseMimeType: 'application/json', temperature: 0.1, maxOutputTokens: 8192 },\n  },\n} };",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "build",
+      "name": "Build Gemini request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2280,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/{{ $json.model }}:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.requestBody) }}",
+        "options": {}
+      },
+      "id": "gemini-tagging",
+      "name": "Gemini tagging",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2500,
+        420
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 10000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const ALLOWED = {\"wishlist_reasons\": [\"price_watch\", \"bookmark_inspiration\", \"occasion_planning\", \"compare_later\", \"gift_or_ask_others\", \"size_unavailable\", \"other\"], \"blockers\": [\"fit_size_uncertainty\", \"price_too_high_or_waiting_for_sale\", \"discount_unpredictability\", \"reviews_photos_insufficient\", \"quality_fabric_doubt\", \"returns_refund_fear\", \"delivery_time_or_cost\", \"out_of_stock_or_size_missing\", \"styling_confusion\", \"occasion_timing_not_urgent\", \"compare_with_other_platform\", \"needs_social_validation\", \"cart_checkout_friction\", \"trust_authenticity_concern\", \"wishlist_ux_problem\", \"no_blocker_purchased\", \"none_mentioned\"], \"uncertainties\": [\"fit\", \"size\", \"fabric_quality\", \"colour_accuracy\", \"price_fairness\", \"styling\", \"occasion_suitability\", \"return_policy\", \"delivery_date\", \"authenticity\", \"review_credibility\", \"none\"], \"outside_sources\": [\"instagram\", \"youtube\", \"reddit\", \"google_search\", \"other_shopping_app\", \"friends_family\", \"brand_website\", \"offline_store_trial\", \"price_tracker\", \"whatsapp_group\", \"none\"], \"intent\": [\"genuine_purchase_intent\", \"bookmarking_only\", \"price_watching\", \"unclear\"], \"segment\": [\"value_seeker\", \"trend_follower\", \"occasion_shopper\", \"size_challenged\", \"plus_size\", \"first_time_online_buyer\", \"male_shopper\", \"beauty_shopper\", \"gen_z\", \"working_professional\", \"unknown\"], \"platform\": [\"myntra\", \"ajio\", \"nykaa_fashion\", \"meesho\", \"amazon\", \"flipkart\", \"other\", \"unknown\"], \"postpone\": [\"waiting_for_sale_or_price_drop\", \"waiting_for_payday_or_budget\", \"no_occasion_yet\", \"checking_other_platforms\", \"asking_friends_or_family\", \"waiting_for_restock_or_size\", \"unresolved_fit_or_quality_doubt\", \"forgot_or_distracted\", \"comparing_shortlisted_items\", \"none\"]};\n\nconst post = $('Build Gemini request').item.json.post;\nconst resp = $input.item.json;\nconst base = { id: post.id, source: post.source, platform: post.platform, date: post.date, text: post.text };\nlet t = null, err = '';\ntry {\n  const raw = resp.candidates[0].content.parts.map(p => p.text || '').join('');\n  const m = raw.match(/\\{[\\s\\S]*\\}/);\n  t = JSON.parse(m ? m[0] : raw);\n} catch (e) {\n  err = JSON.stringify(resp.error || resp).slice(0, 300);\n}\nif (!t) return { json: { ...base, relevant: '', error: err || 'unparseable output' } };\n\nconst keep = (arr, allowed) => (Array.isArray(arr) ? arr : []).filter(x => allowed.includes(x));\nconst norm = s => String(s).toLowerCase().replace(/\\s+/g, ' ');\nconst BADL = ['unknown', 'unclear', 'none', 'none_mentioned', 'no_blocker_purchased', 'n/a', 'null', ''];\nconst evidence = (Array.isArray(t.evidence) ? t.evidence : [])\n  .filter(e => e && e.quote && !BADL.includes(String(e.label || '').toLowerCase()) && norm(post.text).includes(norm(e.quote)));\nlet sev = parseInt(t.severity, 10); if (!(sev >= 1 && sev <= 3)) sev = 1;\nconst j = a => a.join('|');\nconst BAD = ['unknown', 'unclear', 'none', 'none_mentioned', 'no_blocker_purchased', 'n/a', 'null', ''];\nconst clean = v => BAD.includes(String(v == null ? '' : v).trim().toLowerCase()) ? '' : String(v).trim();\nconst platform = post.platform && post.platform !== 'unknown' ? post.platform\n  : (ALLOWED.platform.includes(t.platform) ? clean(t.platform) : '');\nconst blk = keep(t.blockers, ALLOWED.blockers).filter(x => clean(x));\nconst unc = keep(t.uncertainties, ALLOWED.uncertainties).filter(x => clean(x));\nconst wr = keep(t.wishlist_reasons, ALLOWED.wishlist_reasons).filter(x => clean(x));\nconst pp = keep(t.postponement_trigger, ALLOWED.postpone).filter(x => clean(x));\nconst os = keep(t.outside_sources, ALLOWED.outside_sources).filter(x => clean(x));\nconst need = clean(t.unmet_need), cmp = clean(t.comparison_behavior);\nconst said = t.relevant === true || ['true', 'yes'].includes(String(t.relevant).toLowerCase());\n// a row only counts as relevant when it carries at least one real finding (praise-only posts stay blank)\nconst isRel = said && (blk.length || unc.length || wr.length || pp.length || os.length || need || cmp);\nconst row = { ...base, platform,\n  relevant: isRel ? 'yes' : '',\n  intent: isRel && ALLOWED.intent.includes(t.intent) ? clean(t.intent) : '',\n  wishlist_reasons: isRel ? j(wr) : '',\n  blockers: j(blk),\n  uncertainties: j(keep(t.uncertainties, ALLOWED.uncertainties).filter(x => clean(x))),\n  outside_sources: j(keep(t.outside_sources, ALLOWED.outside_sources).filter(x => clean(x))),\n  postponement_trigger: j(keep(t.postponement_trigger, ALLOWED.postpone).filter(x => clean(x))),\n  comparison_behavior: String(t.comparison_behavior || '').slice(0, 300),\n  segment: ALLOWED.segment.includes(t.segment) ? clean(t.segment) : '',\n  unmet_need: isRel ? clean(t.unmet_need) : '', severity: isRel ? sev : '',\n  evidence: evidence.length ? JSON.stringify(evidence) : '', error: '' };\nif (!isRel) for (const k of ['intent','wishlist_reasons','blockers','uncertainties','outside_sources','postponement_trigger','comparison_behavior','segment','unmet_need','severity','evidence']) row[k] = '';\nreturn { json: row };",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "parse",
+      "name": "Parse tags",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2720,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1mQNo6DBGiD5yCAPUj5HNz5memdCVfJcXeoDo3yUvRTE/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "tagged",
+          "mode": "name"
+        },
+        "options": {},
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        }
+      },
+      "id": "save-to-tagged",
+      "name": "Save to tagged",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2940,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 8,
+        "unit": "seconds"
+      },
+      "id": "wait",
+      "name": "Wait (free-tier rate limit)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3160,
+        420
+      ],
+      "webhookId": "wait-free-limit-all"
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1mQNo6DBGiD5yCAPUj5HNz5memdCVfJcXeoDo3yUvRTE/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "reddit_offline",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-reddit-offline",
+      "name": "Read reddit offline",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        500,
+        700
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const guess = t => /myntra/i.test(t) ? 'myntra' : /ajio/i.test(t) ? 'ajio' : /nykaa/i.test(t) ? 'nykaa_fashion' : '';\nconst hash = s => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };\nconst out = [];\nfor (const it of $input.all()) {\n  const r = it.json || {};\n  const text = String(r.text || '').trim();\n  if (!text) continue;\n  out.push({ json: { id: 'rdo_' + hash(text), source: r.source || 'reddit_offline',\n    platform: r.platform || guess(text), date: r.date || '', text: text } });\n}\nreturn out.length ? out : [{ json: { _empty: true } }];"
+      },
+      "id": "norm-reddit-offline",
+      "name": "Normalize reddit offline",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        700
+      ]
+    }
+  ],
+  "connections": {
+    "Start: collect and tag": {
+      "main": [
+        [
+          {
+            "node": "Read tagged ids",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read tagged ids": {
+      "main": [
+        [
+          {
+            "node": "Apps",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Reddit queries",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "YouTube queries",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read manual sources",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read reddit offline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apps": {
+      "main": [
+        [
+          {
+            "node": "App Store reviews",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "App Store reviews": {
+      "main": [
+        [
+          {
+            "node": "Normalize App Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize App Store": {
+      "main": [
+        [
+          {
+            "node": "Merge sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reddit queries": {
+      "main": [
+        [
+          {
+            "node": "Reddit search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reddit search": {
+      "main": [
+        [
+          {
+            "node": "Normalize Reddit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Reddit": {
+      "main": [
+        [
+          {
+            "node": "Merge sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "YouTube queries": {
+      "main": [
+        [
+          {
+            "node": "YouTube video search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube video search": {
+      "main": [
+        [
+          {
+            "node": "Video IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Video IDs": {
+      "main": [
+        [
+          {
+            "node": "YouTube comments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube comments": {
+      "main": [
+        [
+          {
+            "node": "Normalize YouTube",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize YouTube": {
+      "main": [
+        [
+          {
+            "node": "Merge sources",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Read manual sources": {
+      "main": [
+        [
+          {
+            "node": "Normalize manual",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize manual": {
+      "main": [
+        [
+          {
+            "node": "Merge sources",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Merge sources": {
+      "main": [
+        [
+          {
+            "node": "Clean, filter and cap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean, filter and cap": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Build Gemini request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Gemini request": {
+      "main": [
+        [
+          {
+            "node": "Gemini tagging",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini tagging": {
+      "main": [
+        [
+          {
+            "node": "Parse tags",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse tags": {
+      "main": [
+        [
+          {
+            "node": "Save to tagged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to tagged": {
+      "main": [
+        [
+          {
+            "node": "Wait (free-tier rate limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (free-tier rate limit)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read reddit offline": {
+      "main": [
+        [
+          {
+            "node": "Normalize reddit offline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize reddit offline": {
+      "main": [
+        [
+          {
+            "node": "Merge sources",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
