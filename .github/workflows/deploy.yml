@@ -1,0 +1,142 @@
+# What happens on every push to main:
+#   1. Build the app (catches code errors before anything goes live)
+#   2. Set up the Neon database (only creates tables + demo catalogue the first time - never wipes data)
+#   3. Test the APIs on a local copy, with no screens at all
+#   4. Run the full Fit Twin journey end to end: size details -> wishlist -> bag in the suggested size -> order
+#   5. Deploy to Vercel and give the live site its DATABASE_URL
+#   6. Try to break the live site with an impossible size - it must be rejected
+name: Build, test and deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  ship:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm install --no-audit --no-fund
+
+      - name: Build
+        run: |
+          if ! npm run build > build.log 2>&1; then
+            grep -E "Type error|Error:|error TS|Failed to compile|Module not found|\.tsx?:[0-9]+" build.log | head -10 | while IFS= read -r line; do
+              echo "::error title=Build failed::$line"
+            done
+            cat build.log; exit 1
+          fi
+          tail -45 build.log
+
+      - name: Check secrets are set (never prints their values)
+        run: |
+          ok=true
+          if [ -z "$DATABASE_URL" ]; then echo "::error::DATABASE_URL secret is missing or empty"; ok=false
+          elif [[ "$DATABASE_URL" == DATABASE_URL=* ]]; then echo "::error::DATABASE_URL secret starts with 'DATABASE_URL=' - paste only the part starting postgresql://"; ok=false
+          elif [[ "$DATABASE_URL" != postgres* ]]; then echo "::error::DATABASE_URL secret does not start with postgresql:// (starts with '${DATABASE_URL:0:6}...')"; ok=false
+          fi
+          if [ -z "$VERCEL_TOKEN" ]; then echo "::error::VERCEL_TOKEN secret is missing or empty"; ok=false; fi
+          $ok
+
+      - name: Set up database
+        run: npm run db:setup
+
+      - name: Test the APIs locally (no UI)
+        run: |
+          npm start -- -p 3000 > server.log 2>&1 &
+          for i in $(seq 1 30); do curl -s localhost:3000 > /dev/null && break; sleep 1; done
+          code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+          show() { echo; echo "\$ $1"; echo "$2" | head -c 700; echo; }
+          show "GET /api/products?dept=men&sort=fit" "$(curl -s 'localhost:3000/api/products?dept=men&sort=fit')"
+          show "GET /api/products/kurta (Fit Twin for a guest = example size details)" "$(curl -s localhost:3000/api/products/kurta | jq -c '{name, fitDetail, summary}')"
+          test "$(code localhost:3000/api/products/does-not-exist)" = "404"
+          test "$(code -X POST localhost:3000/api/bag -H 'Content-Type: application/json' -d '{"productId":"kurta","size":"M"}')" = "401"
+          test "$(code -X POST localhost:3000/api/wishlist -H 'Content-Type: application/json' -d '{"productId":"kurta"}')" = "401"
+          test "$(code -X POST localhost:3000/api/auth/login -H 'Content-Type: application/json' -d '{"name":"X","phone":"9876543210","otp":"0000"}')" = "400"
+          test "$(code localhost:3000/api/results)" = "200"
+          test "$(curl -s localhost:3000/api/products | jq '.products | length')" -ge 27
+          echo; echo "Guest, unknown product, wrong OTP and logged-out bag/wishlist checks all passed."
+
+      - name: Test the Fit Twin journey end to end (test account, local copy)
+        run: |
+          npm start -- -p 3001 > server2.log 2>&1 &
+          for i in $(seq 1 30); do curl -s localhost:3001 > /dev/null && break; sleep 1; done
+          B=localhost:3001; J=cookies.txt
+          req() { curl -s -b $J -c $J -H "Content-Type: application/json" "$@"; }
+          check() { if ! echo "$2" | grep -q "$3"; then echo "::error title=End-to-end: $1::$(echo "$2" | head -c 400)"; exit 1; fi; echo "ok  $1"; }
+          check "login"            "$(req -X POST $B/api/auth/login -d '{"name":"CI Test","phone":"9000000000","otp":"1234"}')" '"CI Test"'
+          check "save size details" "$(req -X PUT $B/api/profile -d '{"heightCm":172,"build":"broad","top":"L","waist":"32","shoe":"9","pref":"regular"}')" '"isExample":false'
+          check "bad size details rejected" "$(req -X PUT $B/api/profile -d '{"heightCm":500,"build":"broad","top":"L","waist":"32","shoe":"9","pref":"regular"}')" 'Height must be'
+          req -X DELETE "$B/api/bag?productId=kurta" > /dev/null
+          req -X DELETE "$B/api/wishlist?productId=kurta" > /dev/null
+          SUG=$(req $B/api/products/kurta | jq -r '.fitDetail.suggested')
+          echo "Fit Twin suggests $SUG for the test account"
+          check "wishlist add"     "$(req -X POST $B/api/wishlist -d '{"productId":"kurta"}')" '"id":"kurta"'
+          check "wishlist shows Fit Twin size" "$(req $B/api/wishlist)" "\"suggested\":\"$SUG\""
+          check "impossible size rejected" "$(req -X POST $B/api/bag -d '{"productId":"kurta","size":"XXXL"}')" 'Size must be one of'
+          check "move to bag in Fit Twin size" "$(req -X POST $B/api/bag -d "{\"productId\":\"kurta\",\"size\":\"$SUG\",\"fromWishlist\":true}")" "\"suggested\":\"$SUG\""
+          check "left the wishlist" "$(req $B/api/wishlist)" '"products":\[\]'
+          check "qty 2"            "$(req -X PATCH $B/api/bag -d '{"productId":"kurta","qty":2}')" '"qty":2'
+          ADDR=$(req -X POST $B/api/addresses -d '{"name":"CI Test","line":"12 Test Street","city":"Testpur","pin":"110001","kind":"Home"}' | jq '.address.id')
+          ORDER=$(req -X POST $B/api/orders -d "{\"addressId\":$ADDR,\"paymentMethod\":\"upi\"}")
+          check "place order"      "$ORDER" '"orderId"'
+          OID=$(echo "$ORDER" | jq '.orderId')
+          check "bag emptied"      "$(req $B/api/bag)" '"count":0'
+          check "order took Fit Twin size" "$(req "$B/api/orders?id=$OID")" '"tookFitTwin":true'
+          check "results compute"  "$(curl -s $B/api/results)" '"conversionLabel"'
+          echo "::notice title=End-to-end Fit Twin test::size details, wishlist, move to bag in size $SUG, address, order #$OID all passed"
+
+      - name: Deploy to Vercel
+        id: deploy
+        run: |
+          step() {
+            local label="$1"; shift
+            if ! "$@" > out.txt 2>&1; then
+              echo "::error title=$label failed::$(tail -n 8 out.txt | sed 's/%/%25/g' | tr '\n' ' ')"
+              cat out.txt; exit 1
+            fi
+            cat out.txt
+          }
+          npm install -g vercel@latest > /dev/null 2>&1
+          step "Vercel login check" vercel whoami --token "$VERCEL_TOKEN"
+          step "Vercel link" vercel link --yes --project myntra-lite --token "$VERCEL_TOKEN"
+          vercel env rm DATABASE_URL production --yes --token "$VERCEL_TOKEN" > /dev/null 2>&1 || true
+          printf '%s' "$DATABASE_URL" > dburl.txt
+          step "Vercel env add" sh -c 'vercel env add DATABASE_URL production --token "$VERCEL_TOKEN" < dburl.txt'
+          rm dburl.txt
+          step "Vercel deploy" vercel deploy --prod --yes --token "$VERCEL_TOKEN"
+          PROJECT_ID=$(jq -r .projectId .vercel/project.json)
+          ORG_ID=$(jq -r .orgId .vercel/project.json)
+          DOMAIN=$(curl -s -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$PROJECT_ID?teamId=$ORG_ID" \
+            | jq -r '[.targets.production.alias[]? | select(endswith(".vercel.app"))] | sort_by(length) | .[0] // empty')
+          echo "::notice title=Live URL::https://$DOMAIN"
+          echo "url=https://$DOMAIN" >> "$GITHUB_OUTPUT"
+
+      - name: Break it on purpose (against the live site)
+        run: |
+          URL="${{ steps.deploy.outputs.url }}"
+          J=live.txt
+          curl -s -c $J -b $J -H "Content-Type: application/json" -X POST "$URL/api/auth/login" -d '{"name":"CI Test","phone":"9000000000","otp":"1234"}' > /dev/null
+          echo "\$ POST $URL/api/bag  size=XXXL"
+          CODE=$(curl -s -b $J -o body.txt -w '%{http_code}' -X POST "$URL/api/bag" -H "Content-Type: application/json" -d '{"productId":"kurta","size":"XXXL"}')
+          cat body.txt; echo "  [HTTP $CODE]"
+          echo "::notice title=Impossible size on live site::HTTP $CODE $(cat body.txt)"
+          test "$CODE" = "400"
+          {
+            echo "## Live at $URL"
+            echo "- Wishlist: $URL/wishlist"
+            echo "- A product with Fit Twin: $URL/product/kurta"
+            echo "- Test results: $URL/results"
+            echo "- Impossible size on production: HTTP $CODE, $(cat body.txt)"
+          } >> "$GITHUB_STEP_SUMMARY"
