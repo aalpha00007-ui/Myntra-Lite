@@ -34,10 +34,14 @@ const SAVE = ["classic-white-sneakers", "yellow-floral-midi-dress", "kurta"]; //
   await page.goto(`${BASE}/wishlist`, { waitUntil: "networkidle" });
   await shot("wishlist");
   await page.locator("button.mtb").first().click();
+  await page.getByText(/Fit Twin suggests/i).first().waitFor({ timeout: 20000 });
   await shot("sizesheet");
   await page.goto(`${BASE}/product/kurta`, { waitUntil: "networkidle" });
   await shot("product");
   await shot("product-full", { fullPage: true });
+  await page.getByText(/buyers with a build like yours/i).first().scrollIntoViewIfNeeded();
+  await page.evaluate(() => window.scrollBy(0, -260));
+  await shot("product-fit");
   await page.goto(`${BASE}/results`, { waitUntil: "networkidle" });
   await shot("results", { fullPage: true });
 
