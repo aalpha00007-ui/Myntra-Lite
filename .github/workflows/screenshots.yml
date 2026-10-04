@@ -1,0 +1,26 @@
+# Run by hand: takes real screenshots of the live app for the case-study deck.
+name: App screenshots
+
+on:
+  workflow_dispatch:
+
+jobs:
+  shots:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Playwright
+        run: |
+          mkdir -p /tmp/shot && cd /tmp/shot && npm init -y >/dev/null && npm install --no-audit --no-fund playwright@1.48.2
+          npx playwright install --with-deps chromium
+      - name: Take screenshots
+        run: |
+          mkdir -p shots
+          NODE_PATH=/tmp/shot/node_modules node scripts/screenshots.cjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-screenshots
+          path: shots/
